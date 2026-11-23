@@ -1,0 +1,35 @@
+# Dependabot only reads this file from the default branch (7.0). Every version branch is listed as its own target.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: "7.0"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: "6.0"
+    schedule:
+      interval: weekly
+  - package-ecosystem: composer
+    directory: /
+    target-branch: "7.0"
+    schedule:
+      interval: weekly
+    ignore:
+      # The Shopware minor is fixed per branch (7.0: Shopware 6.7, 6.0: Shopware 6.6)
+      - dependency-name: "shopware/*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Follows the Symfony major of Shopware
+      - dependency-name: "symfony/*"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: composer
+    directory: /
+    target-branch: "6.0"
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "shopware/*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "symfony/*"
+        update-types: ["version-update:semver-major"]

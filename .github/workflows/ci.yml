@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["[0-9]+.[0-9]+.[0-9]+", "[0-9]+.[0-9]+.[0-9]+-*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PHPUnit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.2", "8.3", "8.4", "8.5"]
+
+    # For the database tests in tests/Integration
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: maintenance_dns_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: ctype, curl, dom, fileinfo, gd, intl, mbstring, openssl, pdo_mysql, sodium, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-php${{ matrix.php }}-
+
+      # No composer.lock (library): resolves the newest versions allowed by composer.json for this PHP version
+      - name: Install
+        run: composer update --no-interaction --no-progress --prefer-dist
+
+      - name: Test
+        env:
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/maintenance_dns_test
+        run: vendor/bin/phpunit --fail-on-skipped

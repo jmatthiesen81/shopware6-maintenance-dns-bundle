@@ -334,3 +334,10 @@ docker run -d --rm --name maintenance-dns-test-db -e MYSQL_ROOT_PASSWORD=root -e
 DATABASE_URL=mysql://root:root@127.0.0.1:33067/maintenance_dns_test composer test
 docker stop maintenance-dns-test-db
 ```
+
+GitHub Actions runs all tests, including the database tests, for PHP 8.2 to 8.5 on every push and pull request
+(`.github/workflows/ci.yml`). Skipped tests fail the run there.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
