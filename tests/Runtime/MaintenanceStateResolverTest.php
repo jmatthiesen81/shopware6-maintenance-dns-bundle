@@ -14,6 +14,7 @@ use Symfony\Component\HttpFoundation\RequestStack;
 class MaintenanceStateResolverTest extends TestCase
 {
     private const SALES_CHANNEL_ID = '0190a0b0c0d0e0f00000000000000001';
+    private const OTHER_SALES_CHANNEL_ID = '0190a0b0c0d0e0f00000000000000002';
 
     public function testStorefrontRequestUsesAttributesWithoutQuery(): void
     {
@@ -63,6 +64,89 @@ class MaintenanceStateResolverTest extends TestCase
 
         // Memoized per request
         static::assertSame($state, $resolver->resolve($request));
+    }
+
+    /**
+     * `/de/store-api/...` behind the Storefront domain of sales channel A, with the access key of sales channel B:
+     * the core checks B, so the attributes of A (set by RequestTransformer) must be ignored.
+     */
+    public function testStoreApiScopeIgnoresAttributesOfStorefrontDomain(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->expects($this->once())
+            ->method('fetchAssociative')
+            ->with(static::stringContains('access_key = :value AND active = 1'), [ 'value' => 'SWSCKEYOFB' ])
+            ->willReturn([ 'id' => self::OTHER_SALES_CHANNEL_ID, 'maintenance' => '1' ]);
+
+        $request = $this->storefrontRequest(true);
+        $request->attributes->set('_routeScope', [ 'store-api' ]);
+        $request->headers->set('sw-access-key', 'SWSCKEYOFB');
+
+        $state = (new MaintenanceStateResolver($connection, new RequestStack()))->resolve($request);
+
+        static::assertNotNull($state);
+        static::assertSame(self::OTHER_SALES_CHANNEL_ID, $state->salesChannelId);
+    }
+
+    public function testStoreApiScopeWithoutAccessKeyDoesNotUseAttributes(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->expects($this->never())->method('fetchAssociative');
+
+        $request = $this->storefrontRequest(true);
+        $request->attributes->set('_routeScope', [ 'store-api' ]);
+
+        static::assertNull((new MaintenanceStateResolver($connection, new RequestStack()))->resolve($request));
+    }
+
+    public function testStoreApiScopeOfMainRequestApplies(): void
+    {
+        $connection = $this->createStub(Connection::class);
+        $connection->method('fetchAssociative')->willReturn([ 'id' => self::OTHER_SALES_CHANNEL_ID, 'maintenance' => '1' ]);
+
+        $main = $this->storefrontRequest(true);
+        $main->attributes->set('_routeScope', [ 'store-api' ]);
+        $main->headers->set('sw-access-key', 'SWSCKEYOFB');
+
+        $stack = new RequestStack();
+        $stack->push($main);
+        $stack->push($subRequest = Request::create('/store-api/product'));
+
+        static::assertSame(self::OTHER_SALES_CHANNEL_ID, (new MaintenanceStateResolver($connection, $stack))->resolve($subRequest)?->salesChannelId);
+    }
+
+    /**
+     * The HTTP cache checks the request before routing (no route scope), the Store API listener afterwards:
+     * the memoized result of the first check must not be reused for the second.
+     */
+    public function testMemoizesPerMode(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->expects($this->once())
+            ->method('fetchAssociative')
+            ->willReturn([ 'id' => self::OTHER_SALES_CHANNEL_ID, 'maintenance' => '1' ]);
+
+        $request = $this->storefrontRequest(true);
+        $request->headers->set('sw-access-key', 'SWSCKEYOFB');
+        $resolver = new MaintenanceStateResolver($connection, new RequestStack());
+
+        static::assertSame(self::SALES_CHANNEL_ID, $resolver->resolve($request)?->salesChannelId);
+
+        $request->attributes->set('_routeScope', [ 'store-api' ]);
+        static::assertSame(self::OTHER_SALES_CHANNEL_ID, $resolver->resolve($request)?->salesChannelId);
+        static::assertSame(self::OTHER_SALES_CHANNEL_ID, $resolver->resolve($request)?->salesChannelId);
+    }
+
+    public function testStorefrontScopeIgnoresAccessKey(): void
+    {
+        $connection = $this->createMock(Connection::class);
+        $connection->expects($this->never())->method('fetchAssociative');
+
+        $request = $this->storefrontRequest(true);
+        $request->attributes->set('_routeScope', [ 'storefront' ]);
+        $request->headers->set('sw-access-key', 'SWSCKEYOFB');
+
+        static::assertSame(self::SALES_CHANNEL_ID, (new MaintenanceStateResolver($connection, new RequestStack()))->resolve($request)?->salesChannelId);
     }
 
     public function testUnknownAccessKey(): void
