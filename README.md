@@ -50,6 +50,7 @@ devable_maintenance_dns_whitelist:
     enabled: true
     dry_run: false                     # always run as dry run
     remove_on_negative_answer: false   # remove managed IPs on NXDOMAIN / no address
+    keep_max_age_seconds: 0            # max. age of managed IPs kept on DNS errors; 0 = without limit
     lock_ttl_seconds: 300
 
   runtime:
@@ -123,6 +124,12 @@ Rules:
 - A temporary DNS error (timeout, SERVFAIL, truncated answer, …) keeps the previously managed IPs of the hostname.
   NXDOMAIN and answers without (acceptable) addresses keep them as well, unless `remove_on_negative_answer` is
   enabled.
+- `keep_max_age_seconds` limits how long such IPs are kept, counted from the last successful lookup that returned
+  them. Without a limit (`0`, default), an IP stays in the allowlist as long as its hostname cannot be resolved, even
+  if the provider has long since given the dynamic IP to someone else. Choose a multiple of the cron interval, e.g.
+  `86400`, so a short DNS outage does not lock you out. IPs managed before the option was set start their age at
+  the next run. The timestamp is refreshed only after a tenth of the limit, so not every run writes the state; an IP
+  is therefore removed up to 10 % early, never late. An IP stays as long as another hostname still resolves to it.
 - If a hostname is removed from the configuration, its managed IPs are removed. If a sales channel is removed from
   the configuration, its managed IPs are removed on the next run without `--sales-channel`.
 - Repeated runs without DNS changes write nothing.
@@ -157,8 +164,10 @@ To tell its own entries apart from manual ones, the bundle stores the IPs it man
 configuration (table `system_config`), one global entry per sales channel:
 
 ```
-DevableMaintenanceDnsWhitelist.managedIps.<salesChannelId> = {"<ip>": {"hostnames": [...], "inAllowlist": true|false}}
+DevableMaintenanceDnsWhitelist.managedIps.<salesChannelId> = {"<ip>": {"hostnames": [...], "inAllowlist": true|false, "resolvedAt": <unix time>}}
 ```
+
+`resolvedAt` is only stored while `keep_max_age_seconds` is set.
 
 The entry is deleted when a sales channel no longer has managed IPs. It is not exposed publicly. Sales channel custom
 fields are not used for this, because the Store API delivers them (`/store-api/context`).
@@ -250,7 +259,8 @@ zone, DynDNS account, name server, network path to the name server) controls thi
   records of the queried name and its CNAME chain are used. The response ID and question are checked.
 - By default only globally routable addresses are accepted (no private, loopback, link-local, multicast, CGNAT,
   documentation, IPv4-mapped, … addresses).
-- DNS errors and timeouts never allow anything new, and they never remove anything in the command mode.
+- DNS errors and timeouts never allow anything new. In the command mode they keep the managed IPs, without a time
+  limit unless `keep_max_age_seconds` is set.
 - The runtime cache lifetime limits how long an old answer stays valid (DNS rebinding). Keep it short.
 - Logs contain hostnames and the added or removed IPs (needed to trace who was allowed), but no request data.
 

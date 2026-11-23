@@ -47,13 +47,24 @@ class SystemConfigManagedIpStoreTest extends TestCase
         $systemConfig = $this->createMock(SystemConfigService::class);
         $systemConfig->expects($this->once())->method('set')->with(self::KEY, [
             '2a00:1450:4001:816::200e' => [ 'hostnames' => [ 'office.example.net' ], 'inAllowlist' => true ],
-            '85.10.20.1' => [ 'hostnames' => [ 'agency.example.org' ], 'inAllowlist' => false ],
+            '85.10.20.1' => [ 'hostnames' => [ 'agency.example.org' ], 'inAllowlist' => false, 'resolvedAt' => 1700000000 ],
         ]);
 
         (new SystemConfigManagedIpStore($connection, $systemConfig))->apply(self::SC, [
-            '85.10.20.1' => new ManagedIp('85.10.20.1', [ 'agency.example.org' ], false),
+            '85.10.20.1' => new ManagedIp('85.10.20.1', [ 'agency.example.org' ], false, 1700000000),
             '2a00:1450:4001:816::200e' => new ManagedIp('2a00:1450:4001:816::200e', [ 'office.example.net' ], true),
         ], [ '81.2.69.10' ]);
+    }
+
+    public function testLoadReadsResolvedAt(): void
+    {
+        $connection = $this->createStub(Connection::class);
+        $connection->method('fetchOne')->willReturn('{"_value":{"81.2.69.10":{"hostnames":["office.example.net"],"inAllowlist":true,"resolvedAt":1700000000},"81.2.69.20":{"hostnames":["office.example.net"],"inAllowlist":true,"resolvedAt":"bogus"}}}');
+
+        $managed = (new SystemConfigManagedIpStore($connection, $this->createStub(SystemConfigService::class)))->load(self::SC);
+
+        static::assertSame(1700000000, $managed['81.2.69.10']->resolvedAt);
+        static::assertNull($managed['81.2.69.20']->resolvedAt);
     }
 
     public function testApplyDeletesEntryWhenEmpty(): void

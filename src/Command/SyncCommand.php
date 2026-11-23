@@ -51,7 +51,8 @@ class SyncCommand extends Command
             ->setHelp(<<<'HELP'
                 Resolves the DNS hostnames configured per sales channel and adds their IPs to the maintenance allowlist.
                 IPs that the bundle added earlier and that no hostname resolves to any more are removed again. Manually
-                entered allowlist entries are never removed. On DNS errors the previously managed IPs are kept.
+                entered allowlist entries are never removed. On DNS errors the previously managed IPs are kept,
+                with keep_max_age_seconds set only up to that age (counted from their last successful lookup).
 
                 The command does not switch the maintenance mode on or off.
 

@@ -6,6 +6,8 @@ namespace Devable\MaintenanceDnsBundle\Sync;
 
 use Devable\MaintenanceDnsBundle\Dns\DnsResult;
 use Devable\MaintenanceDnsBundle\Ip\IpAddressFilter;
+use Psr\Clock\ClockInterface;
+use Symfony\Component\Clock\NativeClock;
 
 /**
  * Computes the changes for one sales channel, without side effects.
@@ -14,14 +16,19 @@ use Devable\MaintenanceDnsBundle\Ip\IpAddressFilter;
  * - Successful lookup: the managed IPs of the host become exactly the resolved IPs.
  * - Temporary failure (timeout, SERVFAIL, …): the previously managed IPs of the host are kept.
  * - NXDOMAIN / no address: kept as well, unless `removeOnNegativeAnswer` is enabled.
+ * - With `keepMaxAge` > 0, kept IPs are dropped once their last successful lookup (`resolvedAt`) is that many seconds
+ *   old. IPs without a timestamp (e.g. from before the option was set) start their age at the current run.
  * - Hosts no longer configured: their managed IPs are dropped.
  * - The bundle only removes allowlist entries it added itself. Entries that existed before (manual entries)
  *   are never removed, and all other entries (other IPs, CIDR ranges) are kept unchanged and in order.
  */
 final class SyncPlanner
 {
-    public function __construct(private readonly bool $removeOnNegativeAnswer = false)
-    {
+    public function __construct(
+        private readonly bool $removeOnNegativeAnswer = false,
+        private readonly int $keepMaxAge = 0,
+        private readonly ClockInterface $clock = new NativeClock(),
+    ) {
     }
 
     /**
@@ -33,7 +40,17 @@ final class SyncPlanner
     public function plan(string $salesChannelId, array|null $allowlist, array $managed, array $hostnames, array $results): SyncPlan
     {
         $warnings = [];
-        $desired = $this->desiredHostnamesByIp($managed, $hostnames, $results, $warnings);
+        $now = $this->clock->now()->getTimestamp();
+        $desired = $this->desiredHostnamesByIp($managed, $hostnames, $results, $now, $warnings);
+
+        $resolved = [];
+        foreach ($hostnames as $hostname) {
+            if (null !== ($results[$hostname] ?? null) && $results[$hostname]->isSuccess()) {
+                foreach ($results[$hostname]->ips as $ip) {
+                    $resolved[$ip] = true;
+                }
+            }
+        }
 
         $entries = $allowlist ?? [];
         $present = [];
@@ -79,7 +96,7 @@ final class SyncPlanner
                 $present[$ip] = true;
             }
 
-            $record = new ManagedIp($ip, $ipHostnames, $inAllowlist);
+            $record = new ManagedIp($ip, $ipHostnames, $inAllowlist, $this->resolvedAt($current, isset($resolved[$ip]), $now));
             if (null === $current || !$current->equals($record)) {
                 $upserts[$ip] = $record;
             }
@@ -113,7 +130,7 @@ final class SyncPlanner
      *
      * @return array<string, list<string>> IP => hostnames, sorted
      */
-    private function desiredHostnamesByIp(array $managed, array $hostnames, array $results, array &$warnings): array
+    private function desiredHostnamesByIp(array $managed, array $hostnames, array $results, int $now, array &$warnings): array
     {
         $desired = [];
 
@@ -135,18 +152,35 @@ final class SyncPlanner
             }
 
             $kept = [];
+            $expired = [];
             foreach ($managed as $ip => $record) {
-                if (\in_array($hostname, $record->hostnames, true)) {
-                    $desired[$ip][] = $hostname;
-                    $kept[] = $ip;
+                if (!\in_array($hostname, $record->hostnames, true)) {
+                    continue;
                 }
+
+                if ($this->isExpired($record, $now)) {
+                    $expired[] = $record->ip;
+
+                    continue;
+                }
+
+                $desired[$ip][] = $hostname;
+                $kept[] = $record->ip;
+            }
+
+            $actions = [];
+            if ([] !== $kept) {
+                $actions[] = 'keeping ' . \implode(', ', $kept);
+            }
+            if ([] !== $expired) {
+                $actions[] = \sprintf('not keeping %s (last resolved more than %ds ago)', \implode(', ', $expired), $this->keepMaxAge);
             }
 
             $warnings[] = \sprintf(
                 '%s: %s, %s.',
                 $hostname,
                 $result?->error ?? 'not resolved',
-                [] === $kept ? 'nothing to keep' : 'keeping ' . \implode(', ', $kept),
+                [] === $actions ? 'nothing to keep' : \implode(', ', $actions),
             );
         }
 
@@ -160,5 +194,29 @@ final class SyncPlanner
 
         /** @var array<string, list<string>> $desired */
         return $desired;
+    }
+
+    private function isExpired(ManagedIp $record, int $now): bool
+    {
+        return $this->keepMaxAge > 0 && null !== $record->resolvedAt && $record->resolvedAt + $this->keepMaxAge <= $now;
+    }
+
+    /**
+     * Timestamp to store for a desired IP. Refreshed only after a tenth of `keepMaxAge`, so not every run rewrites
+     * the state; an IP is therefore dropped at most 10 % early, never late.
+     */
+    private function resolvedAt(ManagedIp|null $current, bool $resolvedNow, int $now): int|null
+    {
+        $previous = $current?->resolvedAt;
+
+        if (0 === $this->keepMaxAge) {
+            return $previous;
+        }
+
+        if (!$resolvedNow) {
+            return $previous ?? $now;
+        }
+
+        return null === $previous || $previous + \max(1, \intdiv($this->keepMaxAge, 10)) <= $now ? $now : $previous;
     }
 }

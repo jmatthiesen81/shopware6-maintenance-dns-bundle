@@ -97,8 +97,8 @@ class DatabaseIntegrationTest extends TestCase
         static::assertSame([ self::SC1 ], $store->getSalesChannelIds());
         static::assertSame([], $store->load(self::SC2));
 
-        $store->apply(self::SC1, [ '81.2.69.10' => new ManagedIp('81.2.69.10', [ 'qa.example.net' ], false) ], [ '2a00:1450:4001:816::200e' ]);
-        static::assertEquals([ '81.2.69.10' => new ManagedIp('81.2.69.10', [ 'qa.example.net' ], false) ], $store->load(self::SC1));
+        $store->apply(self::SC1, [ '81.2.69.10' => new ManagedIp('81.2.69.10', [ 'qa.example.net' ], false, 1_800_000_000) ], [ '2a00:1450:4001:816::200e' ]);
+        static::assertEquals([ '81.2.69.10' => new ManagedIp('81.2.69.10', [ 'qa.example.net' ], false, 1_800_000_000) ], $store->load(self::SC1));
 
         $store->apply(self::SC1, [], [ '81.2.69.10' ]);
         static::assertSame([], $store->getSalesChannelIds());

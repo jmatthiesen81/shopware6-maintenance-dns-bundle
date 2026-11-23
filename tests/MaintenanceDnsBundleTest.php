@@ -117,7 +117,7 @@ class MaintenanceDnsBundleTest extends TestCase
         $builder = $this->load([
             'enabled' => true,
             'dns' => [ 'record_types' => [ 'a', ' aaaa ' ], 'timeout_seconds' => 1, 'nameservers' => [ '9.9.9.9', '2620:fe::fe' ] ],
-            'command' => [ 'dry_run' => true, 'remove_on_negative_answer' => true ],
+            'command' => [ 'dry_run' => true, 'remove_on_negative_answer' => true, 'keep_max_age_seconds' => 86400 ],
             'sales_channels' => [
                 \strtoupper(self::SC1) => [ 'domains' => [ ' Office.Example.NET. ', 'office.example.net', 'agency.example.org' ] ],
                 self::SC2 => [ 'domains' => [ 'qa.example.net' ] ],
@@ -131,7 +131,7 @@ class MaintenanceDnsBundleTest extends TestCase
 
         $resolver = $builder->getDefinition(UdpDnsResolver::class);
         static::assertSame([ [ 'A', 'AAAA' ], 1.0, 10, [ '9.9.9.9', '2620:fe::fe' ] ], \array_slice($resolver->getArguments(), 2, 4));
-        static::assertSame([ true ], $builder->getDefinition(SyncPlanner::class)->getArguments());
+        static::assertSame([ true, 86400 ], $builder->getDefinition(SyncPlanner::class)->getArguments());
         static::assertTrue($builder->getDefinition(SyncCommand::class)->getArgument(2));
     }
 
@@ -213,6 +213,7 @@ class MaintenanceDnsBundleTest extends TestCase
         yield 'invalid nameserver' => [ [ 'enabled' => true, 'dns' => [ 'nameservers' => [ 'dns.google' ] ], 'sales_channels' => $sc ], 'is not an IP address' ];
         yield 'invalid badge position' => [ [ 'enabled' => true, 'badge' => [ 'position' => 'center' ], 'sales_channels' => $sc ], 'position' ];
         yield 'empty badge text' => [ [ 'enabled' => true, 'badge' => [ 'text' => '' ], 'sales_channels' => $sc ], 'text' ];
+        yield 'negative keep max age' => [ [ 'enabled' => true, 'command' => [ 'keep_max_age_seconds' => -1 ], 'sales_channels' => $sc ], 'keep_max_age_seconds' ];
         yield 'unknown option' => [ [ 'enabled' => true, 'sales_channels' => $sc, 'domains' => [] ], 'Unrecognized option' ];
     }
 

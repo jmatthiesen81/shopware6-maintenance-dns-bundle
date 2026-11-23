@@ -37,7 +37,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  * @phpstan-type BundleConfig array{
  *     enabled: bool,
  *     dns: array{record_types: list<string>, timeout_seconds: float, max_records: int, cache_ttl_seconds: int, negative_cache_ttl_seconds: int, allow_non_public_ips: bool, nameservers: list<string>},
- *     command: array{enabled: bool, dry_run: bool, remove_on_negative_answer: bool, lock_ttl_seconds: int},
+ *     command: array{enabled: bool, dry_run: bool, remove_on_negative_answer: bool, keep_max_age_seconds: int, lock_ttl_seconds: int},
  *     runtime: array{enabled: bool, fail_closed: bool, stale_max_age_seconds: int, cache_pool: string, extend_cache_allowlist_header: bool},
  *     badge: array{enabled: bool, text: string, position: string},
  *     logging: array{enabled: bool, channel: string},
@@ -141,6 +141,11 @@ class MaintenanceDnsBundle extends AbstractBundle
                         ->booleanNode('remove_on_negative_answer')
                             ->info('Remove the managed IPs of a hostname on NXDOMAIN or an answer without addresses. Timeouts and server errors never remove anything.')
                             ->defaultFalse()
+                        ->end()
+                        ->integerNode('keep_max_age_seconds')
+                            ->info('How long the managed IPs of a hostname that cannot be resolved are kept, counted from their last successful lookup. 0: without limit. Use a multiple of the cron interval.')
+                            ->defaultValue(0)
+                            ->min(0)
                         ->end()
                         ->integerNode('lock_ttl_seconds')
                             ->info('Lifetime of the lock against parallel runs. Use a shared lock store (framework.lock) with several servers.')
@@ -412,7 +417,7 @@ class MaintenanceDnsBundle extends AbstractBundle
     {
         $services
             ->set(SyncPlanner::class)
-            ->args([ $config['command']['remove_on_negative_answer'] ])
+            ->args([ $config['command']['remove_on_negative_answer'], $config['command']['keep_max_age_seconds'] ])
         ;
 
         $services
