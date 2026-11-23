@@ -10,6 +10,7 @@ use Devable\MaintenanceDnsBundle\Dns\DnsResolverInterface;
 use Devable\MaintenanceDnsBundle\Dns\UdpDnsResolver;
 use Devable\MaintenanceDnsBundle\MaintenanceDnsBundle;
 use Devable\MaintenanceDnsBundle\Runtime\CachedHostResolver;
+use Devable\MaintenanceDnsBundle\Runtime\MaintenanceBadgeSubscriber;
 use Devable\MaintenanceDnsBundle\Runtime\MaintenanceRequestSubscriber;
 use Devable\MaintenanceDnsBundle\SalesChannelHosts;
 use Devable\MaintenanceDnsBundle\Sync\AllowlistSynchronizer;
@@ -49,6 +50,7 @@ class MaintenanceDnsBundleTest extends TestCase
         static::assertFalse($builder->hasDefinition(SyncCommand::class));
         static::assertFalse($builder->hasDefinition(MaintenanceRequestSubscriber::class));
         static::assertFalse($builder->hasDefinition(CachedHostResolver::class));
+        static::assertFalse($builder->hasDefinition(MaintenanceBadgeSubscriber::class));
     }
 
     public function testDisabledIgnoresMissingSalesChannels(): void
@@ -88,6 +90,26 @@ class MaintenanceDnsBundleTest extends TestCase
 
         static::assertEquals(new Reference(CachedHostResolver::class), $builder->getDefinition(AllowlistSynchronizer::class)->getArgument(6));
         static::assertEquals(new Reference('cache.redis'), $builder->getDefinition(CachedHostResolver::class)->getArgument(1));
+    }
+
+    public function testBadgeIsEnabledByDefault(): void
+    {
+        $definition = $this->load($this->config())->getDefinition(MaintenanceBadgeSubscriber::class);
+
+        static::assertTrue($definition->hasTag('kernel.event_subscriber'));
+        static::assertSame([ 'Maintenance mode', 'top-right' ], $definition->getArguments());
+    }
+
+    public function testBadgeCanBeConfigured(): void
+    {
+        $builder = $this->load($this->config([ 'badge' => [ 'text' => 'Wartungsmodus', 'position' => 'bottom-left' ] ]));
+
+        static::assertSame([ 'Wartungsmodus', 'bottom-left' ], $builder->getDefinition(MaintenanceBadgeSubscriber::class)->getArguments());
+    }
+
+    public function testBadgeCanBeDisabled(): void
+    {
+        static::assertFalse($this->load($this->config([ 'badge' => [ 'enabled' => false ] ]))->hasDefinition(MaintenanceBadgeSubscriber::class));
     }
 
     public function testNormalizedConfiguration(): void
@@ -189,6 +211,8 @@ class MaintenanceDnsBundleTest extends TestCase
         yield 'timeout too high' => [ [ 'enabled' => true, 'dns' => [ 'timeout_seconds' => 30 ], 'sales_channels' => $sc ], 'timeout_seconds' ];
         yield 'cache ttl too low' => [ [ 'enabled' => true, 'dns' => [ 'cache_ttl_seconds' => 0 ], 'sales_channels' => $sc ], 'cache_ttl_seconds' ];
         yield 'invalid nameserver' => [ [ 'enabled' => true, 'dns' => [ 'nameservers' => [ 'dns.google' ] ], 'sales_channels' => $sc ], 'is not an IP address' ];
+        yield 'invalid badge position' => [ [ 'enabled' => true, 'badge' => [ 'position' => 'center' ], 'sales_channels' => $sc ], 'position' ];
+        yield 'empty badge text' => [ [ 'enabled' => true, 'badge' => [ 'text' => '' ], 'sales_channels' => $sc ], 'text' ];
         yield 'unknown option' => [ [ 'enabled' => true, 'sales_channels' => $sc, 'domains' => [] ], 'Unrecognized option' ];
     }
 

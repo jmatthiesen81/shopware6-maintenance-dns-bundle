@@ -59,6 +59,11 @@ devable_maintenance_dns_whitelist:
     cache_pool: 'cache.object'
     extend_cache_allowlist_header: true
 
+  badge:
+    enabled: true                      # badge on Storefront pages during maintenance
+    text: 'Maintenance mode'
+    position: 'top-right'              # top-right, top-left, bottom-right, bottom-left
+
   logging:
     enabled: true
     channel: 'maintenance_dns'         # Monolog channel
@@ -210,6 +215,20 @@ is not empty. Cached copies keep the IPs from the time they were cached.
 
 Pages that Shopware delivers from the HTTP cache are not checked again by the maintenance logic. This applies to
 static allowlist entries the same way. Clear the HTTP cache after switching the maintenance mode on.
+
+## Maintenance badge
+
+While a sales channel is in maintenance mode, Storefront pages show a small badge (top right by default). Only
+allowed clients see it, because everybody else is redirected to the maintenance page. It works for both the static
+allowlist and the runtime mode, so it is clear at a glance that the shop is not public right now.
+
+- Inserted before `</body>` of Storefront HTML pages of the main request, independent of the theme and without asset
+  compilation. Not on the maintenance page, XHR/widget requests, redirects, the Store API or the Admin.
+- Uses the CSP nonce of the request if Shopware sets one.
+- Responses with the badge get `Cache-Control: private, no-store`, so neither the HTTP cache nor a reverse proxy keeps
+  them. Shopware does not cache responses for allowed clients during maintenance anyway.
+- `pointer-events: none`: it never blocks clicks on the elements below it.
+- Disable it with `badge.enabled: false`. Like everything else, it is off while `enabled` is `false`.
 
 ## Client IP and reverse proxies
 
