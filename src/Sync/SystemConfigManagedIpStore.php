@@ -9,7 +9,8 @@ use Shopware\Core\System\SystemConfig\SystemConfigService;
 
 /**
  * Stores the managed IPs in the Shopware system configuration, one global entry per sales channel:
- * `DevableMaintenanceDnsWhitelist.managedIps.<salesChannelId>` => {"<ip>": {"hostnames": [...], "inAllowlist": bool}}
+ * `DevableMaintenanceDnsWhitelist.managedIps.<salesChannelId>` => {"<ip>": {"hostnames": [...], "inAllowlist": bool, "resolvedAt": int}}
+ * (`resolvedAt` only while `keep_max_age_seconds` is set)
  *
  * - No own table and no migration; the cleanup command removes all entries before the bundle is uninstalled.
  * - Not exposed publicly (unlike sales channel custom fields, which the Store API delivers).
@@ -49,7 +50,8 @@ class SystemConfigManagedIpStore implements ManagedIpStoreInterface
 
             $ip = (string) $ip;
             $hostnames = \is_array($record['hostnames'] ?? null) ? \array_values(\array_map('strval', $record['hostnames'])) : [];
-            $managed[$ip] = new ManagedIp($ip, $hostnames, (bool) ($record['inAllowlist'] ?? false));
+            $resolvedAt = \is_int($record['resolvedAt'] ?? null) ? $record['resolvedAt'] : null;
+            $managed[$ip] = new ManagedIp($ip, $hostnames, (bool) ($record['inAllowlist'] ?? false), $resolvedAt);
         }
 
         \ksort($managed, \SORT_STRING);
@@ -93,6 +95,9 @@ class SystemConfigManagedIpStore implements ManagedIpStoreInterface
         $value = [];
         foreach ($managed as $ip => $record) {
             $value[$ip] = [ 'hostnames' => $record->hostnames, 'inAllowlist' => $record->inAllowlist ];
+            if (null !== $record->resolvedAt) {
+                $value[$ip]['resolvedAt'] = $record->resolvedAt;
+            }
         }
 
         $this->systemConfig->set(self::key($salesChannelId), $value);
