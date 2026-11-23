@@ -11,6 +11,7 @@ use Devable\MaintenanceDnsBundle\Dns\UdpDnsResolver;
 use Devable\MaintenanceDnsBundle\Dns\UdpDnsTransport;
 use Devable\MaintenanceDnsBundle\Ip\IpAddressFilter;
 use Devable\MaintenanceDnsBundle\Runtime\CachedHostResolver;
+use Devable\MaintenanceDnsBundle\Runtime\MaintenanceBadgeSubscriber;
 use Devable\MaintenanceDnsBundle\Runtime\MaintenanceRequestSubscriber;
 use Devable\MaintenanceDnsBundle\Runtime\MaintenanceStateResolver;
 use Devable\MaintenanceDnsBundle\Runtime\RuntimeAllowlist;
@@ -38,6 +39,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *     dns: array{record_types: list<string>, timeout_seconds: float, max_records: int, cache_ttl_seconds: int, negative_cache_ttl_seconds: int, allow_non_public_ips: bool, nameservers: list<string>},
  *     command: array{enabled: bool, dry_run: bool, remove_on_negative_answer: bool, lock_ttl_seconds: int},
  *     runtime: array{enabled: bool, fail_closed: bool, stale_max_age_seconds: int, cache_pool: string, extend_cache_allowlist_header: bool},
+ *     badge: array{enabled: bool, text: string, position: string},
  *     logging: array{enabled: bool, channel: string},
  *     sales_channels: array<string, array{domains: list<string>}>
  * }
@@ -175,6 +177,23 @@ class MaintenanceDnsBundle extends AbstractBundle
                         ->end()
                     ->end()
                 ->end()
+                ->arrayNode('badge')
+                    ->info('Badge on Storefront pages while the sales channel is in maintenance mode, visible to allowed clients only.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->booleanNode('enabled')
+                            ->defaultTrue()
+                        ->end()
+                        ->scalarNode('text')
+                            ->defaultValue('Maintenance mode')
+                            ->cannotBeEmpty()
+                        ->end()
+                        ->enumNode('position')
+                            ->values(MaintenanceBadgeSubscriber::POSITIONS)
+                            ->defaultValue('top-right')
+                        ->end()
+                    ->end()
+                ->end()
                 ->arrayNode('logging')
                     ->addDefaultsIfNotSet()
                     ->children()
@@ -287,6 +306,14 @@ class MaintenanceDnsBundle extends AbstractBundle
 
         if ($runtimeEnabled) {
             $this->loadRuntime($config, $services, $logger, $channel);
+        }
+
+        if ($config['enabled'] && $config['badge']['enabled']) {
+            $services
+                ->set(MaintenanceBadgeSubscriber::class)
+                ->args([ $config['badge']['text'], $config['badge']['position'] ])
+                ->tag('kernel.event_subscriber')
+            ;
         }
 
         if ($config['enabled'] && $config['command']['enabled']) {
