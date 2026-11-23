@@ -175,8 +175,9 @@ The same decision point is used by:
 Behavior:
 
 - It only takes effect if the sales channel of the request is in maintenance mode. For the Storefront this comes
-  from the request attributes, for the Store API from the `sw-access-key` header (one database query per request
-  during maintenance). Without maintenance, it does not resolve anything.
+  from the request attributes, for Store API routes always from the `sw-access-key` header (one database query per
+  request during maintenance), also when the Store API is called below a Storefront domain (`/de/store-api/...`),
+  whose attributes belong to the sales channel of that domain. Without maintenance, it does not resolve anything.
 - It only allows, it never disallows. Already allowed clients (static allowlist) are left alone without a DNS lookup.
 - Hostnames are only resolved while a non-allowed client hits a sales channel in maintenance, and resolving stops at
   the first match.
@@ -285,7 +286,8 @@ The runtime mode relies on Shopware internals. On Shopware updates, check:
 - `MaintenanceModeResolver::isClientAllowed()` still dispatches `MaintenanceModeRequestEvent` before the decision,
   and Storefront, Store API and `CacheStore` still use it
 - request attributes `sw-sales-channel-id`, `sw-maintenance` (`RequestTransformer`) and the Store API order in
-  `SalesChannelAuthenticationListener` (maintenance check before setting the sales channel ID)
+  `SalesChannelAuthenticationListener` (maintenance check on `kernel.controller`, i.e. with `_routeScope` already set,
+  and before setting the sales channel ID)
 - allowlist field and header names (`maintenanceIpWhitelist`, `sw-maintenance-whitelist`)
 - `SystemConfigService::set()` / `delete()`
 
